@@ -332,7 +332,7 @@ impl<'store, T: IrVisitor<State = InterpreterState<'store>, Error = InterpreterB
         state: &mut T::State,
         n_instructions: usize,
     ) -> InterpreterResult {
-        let reader = IrReader::new(code);
+        let mut reader = IrReader::new(code);
 
         // Run up to n instructions
         for _ in 0..n_instructions {

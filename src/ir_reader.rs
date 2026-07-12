@@ -9,7 +9,17 @@ pub enum IrReaderError {
     InvalidCallType(u8),
 }
 
-pub struct IrReader<'code>(&'code [Box<TextPage>]);
+pub struct IrReader<'code> {
+    code: &'code [Box<TextPage>],
+    // Base pointer of the currently-cached page, and its index. A word read
+    // otherwise chases the `Box<TextPage>` indirection on every access (load the
+    // box pointer from the slice, then the word). Caching the page base lets
+    // consecutive same-page reads -- the opcode fetch plus immediates of
+    // straight-line code -- skip the box-pointer load. `cur_page == usize::MAX`
+    // marks the cache empty; jumps that land on a different page refill it.
+    cur_page: usize,
+    cur_base: *const u16,
+}
 
 impl AddAssign<i32> for JumpTarget {
     fn add_assign(&mut self, rhs: i32) {
@@ -20,39 +30,46 @@ impl AddAssign<i32> for JumpTarget {
 
 impl<'code> IrReader<'code> {
     pub fn new(code: &'code [Box<TextPage>]) -> Self {
-        IrReader(code)
+        IrReader {
+            code,
+            cur_page: usize::MAX,
+            cur_base: core::ptr::null(),
+        }
     }
 
-    fn read(&self, address: &mut JumpTarget) -> Result<u16, IrReaderError> {
+    fn read(&mut self, address: &mut JumpTarget) -> Result<u16, IrReaderError> {
         let page = address.page();
         let offset = address.offset();
 
         #[cfg(feature = "strict-assertions")]
         {
-            if page >= self.0.len() || offset >= 256 {
-                Err(IrReaderError::InvalidAddress)
-            } else {
-                *address += 1;
-                Ok(self.0[page].0[offset])
+            if page >= self.code.len() || offset >= 256 {
+                return Err(IrReaderError::InvalidAddress);
             }
         }
 
-        #[cfg(not(feature = "strict-assertions"))]
-        {
-            let v = unsafe { self.0.get_unchecked(page).0.get_unchecked(offset) };
-            *address += 1;
-            Ok(*v)
+        if page != self.cur_page {
+            // SAFETY: in strict mode `page` was bounds-checked just above;
+            // otherwise the caller guarantees the address is in range -- the
+            // same contract the original `get_unchecked` reader relied on.
+            self.cur_base = unsafe { self.code.get_unchecked(page) }.0.as_ptr();
+            self.cur_page = page;
         }
+
+        *address += 1;
+        // SAFETY: `offset < 256` (checked in strict mode; caller-guaranteed
+        // otherwise) so it is within the cached page's 256-word array.
+        Ok(unsafe { *self.cur_base.add(offset) })
     }
 
-    fn read_u32(&self, address: &mut JumpTarget) -> Result<u32, IrReaderError> {
+    fn read_u32(&mut self, address: &mut JumpTarget) -> Result<u32, IrReaderError> {
         let w1 = self.read(address)?;
         let w2 = self.read(address)?;
 
         Ok((w1 as u32) | ((w2 as u32) << 16))
     }
 
-    fn read_u64(&self, address: &mut JumpTarget) -> Result<u64, IrReaderError> {
+    fn read_u64(&mut self, address: &mut JumpTarget) -> Result<u64, IrReaderError> {
         let w1 = self.read(address)?;
         let w2 = self.read(address)?;
         let w3 = self.read(address)?;
@@ -67,7 +84,7 @@ impl<'code> IrReader<'code> {
     }
 
     pub fn visit_instruction<S, E, V>(
-        &self,
+        &mut self,
         state: &mut S,
         pc: &mut JumpTarget,
         visitor: &V,
