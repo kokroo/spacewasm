@@ -119,6 +119,28 @@ SpaceWasm is tested against the Coremark benchmark to trace performance regressi
 See [coremark](crates/spacewasm_std/benches)
 for more information.
 
+## Profile-Guided Optimization
+
+The interpreter spends nearly all of its time in a single hot dispatch loop, which makes it a strong candidate for
+[Profile-Guided Optimization (PGO)](https://doc.rust-lang.org/rustc/profile-guided-optimization.html). SpaceWasm ships as a
+`no_std` library, so PGO cannot be baked into the crates.io artifact — the consumer recompiles from source. Instead,
+`scripts/pgo.sh` builds a profile-optimized standalone interpreter binary (`target/release/spacewasm_std`) that an embedder
+can ship, using the standard three-stage LLVM workflow trained on the in-repo CoreMark benchmark:
+
+```bash
+# Prerequisite: the llvm-tools-preview component (ships llvm-profdata)
+rustup component add llvm-tools-preview
+
+# Instrument -> gather -> merge -> rebuild with the profile
+make pgo
+
+# Report the baseline vs. PGO CoreMark score, and copy out the optimized binary
+./scripts/pgo.sh --compare --out spacewasm_std.pgo
+```
+
+PGO profiles are specific to the host toolchain and target triple, so regenerate them for each deployment target rather than
+reusing a checked-in profile. Intermediates land under `target/pgo/`; `make pgo-clean` removes them.
+
 ## Testing
 
 ### Unit & Integration Tests

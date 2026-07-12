@@ -429,3 +429,54 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
           verbose: true
+
+  pgo:
+    name: Profile-Guided Optimization
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Ships llvm-profdata, which scripts/pgo.sh uses to merge profiles.
+          components: llvm-tools-preview
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry/index
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo git
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-pgo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-pgo-
+
+      # Instrument -> gather -> merge -> rebuild, reporting the baseline vs.
+      # PGO CoreMark score. This is a smoke test that the PGO pipeline keeps
+      # working; the optimized binary is uploaded below as the shippable artifact.
+      - name: Build PGO interpreter binary
+        run: ./scripts/pgo.sh --compare
+
+      - name: Upload optimized interpreter binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: spacewasm_std-pgo-${{ runner.os }}-${{ runner.arch }}
+          path: target/release/spacewasm_std

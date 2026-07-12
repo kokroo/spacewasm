@@ -1,4 +1,4 @@
-.PHONY: help fuzz seed-to-wasm trace-wasm trace trace-debug clean-artifacts install-tools
+.PHONY: help fuzz seed-to-wasm trace-wasm trace trace-debug clean-artifacts install-tools pgo pgo-clean
 
 # Default target
 help:
@@ -19,6 +19,10 @@ help:
 	@echo "  make trace CRASH=fuzz/artifacts/no_traps/crash-abc123"
 	@echo "  make trace-debug CRASH=crash-abc123 LIMIT=100"
 	@echo "  make trace-wasm WASM=output.wasm LIMIT=50"
+	@echo ""
+	@echo "Optimization:"
+	@echo "  make pgo                           Build a profile-guided optimized interpreter binary"
+	@echo "  make pgo-clean                     Delete PGO intermediates (target/pgo)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make install-tools                 Install binaries to ~/.cargo/bin"
@@ -88,3 +92,12 @@ trace-wasm-debug:
 clean-artifacts:
 	rm -rf fuzz/artifacts/*
 	@echo "Cleaned fuzzer artifacts"
+
+# Build a profile-guided optimized interpreter binary (see scripts/pgo.sh)
+pgo:
+	./scripts/pgo.sh
+
+# Clean PGO intermediates
+pgo-clean:
+	rm -rf target/pgo
+	@echo "Cleaned PGO intermediates"
